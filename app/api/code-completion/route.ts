@@ -1,53 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
 
 interface CodeSuggestionRequest {
-    fileContent: string;
-    cursorLine: number;
-    cursorColumn:number;
-    suggestionType: string;
-    fileName?: string;
+  fileContent: string;
+  cursorLine: number;
+  cursorColumn: number;
+  suggestionType: string;
+  fileName?: string;
 }
 interface CodeContext {
-    language: string;
-    framework: string;
-    beforeContext: string;
-    currentLine:string;
-    afterContext:string;
-    cursorPosition:{line:number; column: number}
-    isInFunction: boolean;
-    isInClass: boolean;
-    isAfterComment:boolean;
-    incompletePatterns:string[]
+  language: string;
+  framework: string;
+  beforeContext: string;
+  currentLine: string;
+  afterContext: string;
+  cursorPosition: { line: number; column: number };
+  isInFunction: boolean;
+  isInClass: boolean;
+  isAfterComment: boolean;
+  incompletePatterns: string[];
 }
 
-export async function POST(request:NextRequest){
-    try {
-        const body: CodeSuggestionRequest = await request.json()
-        const {fileContent, cursorLine,cursorColumn, suggestionType,fileName} = body
+export async function POST(request: NextRequest) {
+  try {
+    const body: CodeSuggestionRequest = await request.json();
+    const { fileContent, cursorLine, cursorColumn, suggestionType, fileName } =
+      body;
 
-        if(!fileContent || cursorLine<0 || cursorColumn <0 || !suggestionType){
-            return NextResponse.json({error:"Invalid input parameter "}, {status:400})
-        }
-
-        const context = analyzeCodeContext(fileContent, cursorLine,cursorColumn, fileName)
-
-        const prompt = buildPrompt(context, suggestionType)
-        const suggestion = await generateSuggestion(prompt)
-
-        return NextResponse.json({
-            suggestion,
-            context,
-            metadata:{
-                language: context.language,
-                framework:context.framework,
-                position:context.cursorPosition,
-                generatedAt: new Date().toISOString(),
-            },
-        })
-    } catch (error:any) {
-        console.error("COntext analysis error: ", error)
-        return NextResponse.json({error: "Internal server error", message: error.message},{status: 500})
+    if (!fileContent || cursorLine < 0 || cursorColumn < 0 || !suggestionType) {
+      return NextResponse.json(
+        { error: "Invalid input parameter " },
+        { status: 400 }
+      );
     }
+
+    const context = analyzeCodeContext(
+      fileContent,
+      cursorLine,
+      cursorColumn,
+      fileName
+    );
+
+    const prompt = buildPrompt(context, suggestionType);
+    const suggestion = await generateSuggestion(prompt);
+
+    return NextResponse.json({
+      suggestion,
+      context,
+      metadata: {
+        language: context.language,
+        framework: context.framework,
+        position: context.cursorPosition,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error: unknown) {
+    // Use unknown
+    console.error("Context analysis error: ", error);
+
+    let errorMessage = "An unknown error occurred.";
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    
+
+    return NextResponse.json(
+      { error: "Internal server error", message: errorMessage },
+      { status: 500 }
+    );
+  }
 }
 function analyzeCodeContext(
   content: string,
@@ -118,7 +138,6 @@ Instructions:
 
 Generate suggestion:`;
 }
-
 
 async function generateSuggestion(prompt: string): Promise<string> {
   try {

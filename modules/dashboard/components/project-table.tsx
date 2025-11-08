@@ -62,7 +62,18 @@ interface ProjectTableProps {
     data: { title: string; description: string }
   ) => Promise<void>;
   onDeleteProject?: (id: string) => Promise<void>;
-  onDuplicateProject?: (id: string) => Promise<void>;
+  onDuplicateProject?: (id: string) => Promise<
+    | {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        userId: string;
+        title: string;
+        description: string | null;
+        template: any; // Use 'any' or the imported Templates enum type
+      }
+    | undefined
+  >;
   onMarkasFavorite?: (id: string) => Promise<void>;
 }
 
@@ -89,35 +100,31 @@ export default function ProjectTable({
   const [favoutrie, setFavourite] = useState(false);
 
   const handleEditClick = (project: Project) => {
-    setSelectedProject(project)
+    setSelectedProject(project);
     setEditData({
-      title:project.title,
-      description:project.description || ""
-    })
-    setEditDialogOpen(true)
+      title: project.title,
+      description: project.description || "",
+    });
+    setEditDialogOpen(true);
   };
 
   const handleDeleteClick = async (project: Project) => {
-    setSelectedProject(project)
+    setSelectedProject(project);
 
-    setDeleteDialogOpen(true)
-    
+    setDeleteDialogOpen(true);
   };
 
   const handleUpdateProject = async () => {
-    if(!selectedProject || !onUpdateProject) return;
+    if (!selectedProject || !onUpdateProject) return;
     setIsLoading(true);
     try {
-      await onUpdateProject(selectedProject.id,
-        editData
-      )
-      setEditDialogOpen(false)
-      toast.success("Project updated Successfuly")
+      await onUpdateProject(selectedProject.id, editData);
+      setEditDialogOpen(false);
+      toast.success("Project updated Successfuly");
     } catch (error) {
       toast.error("Failed to Update Project");
-      console.error("Error updating project:", error)
-    }
-    finally{
+      console.error("Error updating project:", error);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -132,7 +139,7 @@ export default function ProjectTable({
     try {
       await onDeleteProject(selectedProject.id);
       setDeleteDialogOpen(false);
-      setSelectedProject(null)
+      setSelectedProject(null);
       toast.success("Project deleted Successfuly");
     } catch (error) {
       toast.error("Failed to delete Project");
@@ -143,23 +150,23 @@ export default function ProjectTable({
   };
 
   const handleDuplicateProject = async (project: Project) => {
-   if (!selectedProject || !onDuplicateProject) return;
-   setIsLoading(true);
-   try {
-     await onDuplicateProject(selectedProject.id);
-     toast.success("Project duplicated Successfuly");
-   } catch (error) {
-     toast.error("Failed to duplicated Project");
-     console.error("Error duplicating project:", error);
-   } finally {
-     setIsLoading(false);
-   }
+    if (!selectedProject || !onDuplicateProject) return;
+    setIsLoading(true);
+    try {
+      await onDuplicateProject(selectedProject.id);
+      toast.success("Project duplicated Successfuly");
+    } catch (error) {
+      toast.error("Failed to duplicated Project");
+      console.error("Error duplicating project:", error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const copyProjectUrl = (projectId: string) => {
-    const url = `${window.location.origin}/playground/${projectId}`
+    const url = `${window.location.origin}/playground/${projectId}`;
     navigator.clipboard.writeText(url);
-    toast.success("Project url coopied successfully")
+    toast.success("Project url coopied successfully");
   };
 
   return (
@@ -207,7 +214,7 @@ export default function ProjectTable({
                     <div className="w-8 h-8 rounded-full overflow-hidden">
                       <Image
                         src={project.user.image || "/placeholder.svg"}
-                        alt={project.user.name}
+                        alt={project.user.name!}
                         width={32}
                         height={32}
                         className="object-cover"
@@ -227,7 +234,9 @@ export default function ProjectTable({
                     <DropdownMenuContent align="end" className="w-48">
                       <DropdownMenuItem asChild>
                         <MarkedToggleButton
-                          markedForRevision={project.starmark?.[0].isMarked}
+                          markedForRevision={
+                            project.StarMark?.[0]?.isMarked || false
+                          }
                           id={project.id}
                         />
                       </DropdownMenuItem>

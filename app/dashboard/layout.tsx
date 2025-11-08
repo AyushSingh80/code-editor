@@ -18,15 +18,15 @@ export default async function DashboardLayout({
     }
     const formattedPalyground = playground?.map((item)=> ({
         id: item.id,
-        names:item.title,
+        name:item.title,
         starred:item.StarMark?.[0]?.isMarked || false,
         icon:technologyIconMap[item.template] ||"code2"
     }))
 return (
   <SidebarProvider>
     <div className="flex min-h-screen w-full overflow-x-hidden">
-        {/* @ts-ignore */}
-        <DashboardSidebar initialPlaygroundData={formattedPalyground}></DashboardSidebar>
+        
+        <DashboardSidebar initialPlaygroundData={formattedPalyground || []}></DashboardSidebar>
       <main className="flex-1">{children}</main>
     </div>
   </SidebarProvider>
