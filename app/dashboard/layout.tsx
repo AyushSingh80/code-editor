@@ -1,0 +1,34 @@
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { getAllPlaygroundForUser } from "@/modules/dashboard/actions";
+import { DashboardSidebar } from "@/modules/dashboard/components/dashboard-sidebar";
+
+export default async function DashboardLayout({
+    children
+}:{
+    children:React.ReactNode
+}){
+    const playground = await getAllPlaygroundForUser()
+    const technologyIconMap: Record<string,string> = {
+        REACT:"Zap",
+        NEXTJS:"Lightbulb",
+        EXPRESS:"Database",
+        VUE:"Compass",
+        HONO:"FlameIcon",
+        ANGULAR:"Terminal"
+    }
+    const formattedPalyground = playground?.map((item)=> ({
+        id: item.id,
+        names:item.title,
+        starred:item.StarMark?.[0]?.isMarked || false,
+        icon:technologyIconMap[item.template] ||"code2"
+    }))
+return (
+  <SidebarProvider>
+    <div className="flex min-h-screen w-full overflow-x-hidden">
+        {/* @ts-ignore */}
+        <DashboardSidebar initialPlaygroundData={formattedPalyground}></DashboardSidebar>
+      <main className="flex-1">{children}</main>
+    </div>
+  </SidebarProvider>
+);
+}
