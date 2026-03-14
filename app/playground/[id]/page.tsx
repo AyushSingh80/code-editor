@@ -255,7 +255,6 @@ const MainPlaygroundPage = () => {
   );
 
   const handleSaveAll = async () => {
-    console.log("handleSaveAll called at line no. 252");
     const unsavedFiles = openFiles.filter((f) => f.hasUnsavedChanges);
     if (unsavedFiles.length === 0) {
       toast.info("No unsaved files");
@@ -284,7 +283,7 @@ const MainPlaygroundPage = () => {
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] p-4">
         <AlertCircle className="h-12 w-12 text-red-500 mb-4"></AlertCircle>
-        <h2 className="text-x1 font-semibold text-red-600 mb-2">
+        <h2 className="text-xl font-semibold text-red-600 mb-2">
           {" "}
           Something went wrong
         </h2>
@@ -359,7 +358,7 @@ const MainPlaygroundPage = () => {
             <div className="flex flex-1 items-center gap-2">
               <div className="flex flex-col flex-1">
                 <h1 className="text-sm font-medium">
-                  {playgroundData?.title || " Code payground"}
+                  {playgroundData?.title || " Code playground"}
                 </h1>
                 <p className="text-xs text-muted-foreground">
                   {openFiles.length} File(s) Open
@@ -410,11 +409,10 @@ const MainPlaygroundPage = () => {
                     >
                       {isPreviewVisible ? "Hide" : "Show"} preview
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator>
-                      <DropdownMenuItem onClick={closeAllFile}>
-                        Close All Files
-                      </DropdownMenuItem>
-                    </DropdownMenuSeparator>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={closeAllFile}>
+                      Close All Files
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -445,7 +443,7 @@ const MainPlaygroundPage = () => {
                                 <span className="h-2 w-2 rounded-full bg-orange-500"></span>
                               )}
                               <span
-                                className="m1-2 h-4 w-4 hover:bg-destructive hover:text-destructive-foreground rounded-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursir-pointer"
+                                className="ml-2 h-4 w-4 hover:bg-destructive hover:text-destructive-foreground rounded-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   closeFile(file.id);
@@ -506,7 +504,7 @@ const MainPlaygroundPage = () => {
                 </div>
               </div>
             ) : (
-              <div className=" flex flex-col h-full items-center justify-center text-muuted-foreground gap-4">
+              <div className=" flex flex-col h-full items-center justify-center text-muted-foreground gap-4">
                 <FileText className=" h-16 w-16 text-gray-300" />
                 <div className=" text-center">
                   <p className="text-lg font-medium"> No files Open</p>

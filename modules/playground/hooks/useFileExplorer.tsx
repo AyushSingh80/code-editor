@@ -109,7 +109,7 @@ export const useFileExplorer = create<FileExplorerState>((set, get) => ({
 
   closeFile: (fileId) => {
     const { openFiles, activeFileId } = get();
-    const newFiles = openFiles.filter((f) => f.id != fileId);
+    const newFiles = openFiles.filter((f) => f.id !== fileId);
 
     let newActiveFileId = activeFileId;
     let newEditorContent = get().editorContent;
@@ -248,7 +248,7 @@ export const useFileExplorer = create<FileExplorerState>((set, get) => ({
           item.fileExtension !== file.fileExtension
       );
       const fileId = generateFileId(file, templateData);
-      const openFile = openFiles.find((f) => (f.id = fileId));
+      const openFile = openFiles.find((f) => f.id === fileId);
       if (openFile) {
         get().closeFile(fileId);
       }
