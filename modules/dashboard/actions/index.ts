@@ -63,22 +63,41 @@ export const importGithubRepo = async (repoUrl: string, projectName: string) => 
   const { owner, repo } = parsed;
   let { branch } = parsed;
 
-  // Try to use the signed-in user's GitHub access token to raise rate limits
+  // Try to use the signed-in user's GitHub access token to raise rate limits.
+  // If the stored token is expired/invalid we fall back to unauthenticated requests
+  // so that public repositories still work.
   const account = await db.account.findFirst({
     where: { userId: user.id, provider: "github" },
     select: { accessToken: true },
   });
 
-  const headers: Record<string, string> = {
+  const baseHeaders: Record<string, string> = {
     Accept: "application/vnd.github.v3+json",
     "User-Agent": "code-editor-app",
   };
-  if (account?.accessToken) headers["Authorization"] = `token ${account.accessToken}`;
+
+  // Returns headers with auth if token is valid, or without auth as fallback
+  const makeHeaders = (withAuth: boolean): Record<string, string> => {
+    if (withAuth && account?.accessToken) {
+      return { ...baseHeaders, Authorization: `token ${account.accessToken}` };
+    }
+    return { ...baseHeaders };
+  };
+
+  // Fetch with optional auth, falling back to no-auth on 401
+  const githubFetch = async (url: string): Promise<Response> => {
+    const res = await fetch(url, { headers: makeHeaders(true) });
+    if (res.status === 401 && account?.accessToken) {
+      // Token is invalid/expired — retry without auth (works for public repos)
+      return fetch(url, { headers: makeHeaders(false) });
+    }
+    return res;
+  };
 
   try {
     // 1. Get default branch if not specified
     if (!branch) {
-      const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+      const repoRes = await githubFetch(`https://api.github.com/repos/${owner}/${repo}`);
       if (!repoRes.ok) {
         const err = await repoRes.json().catch(() => ({}));
         return { success: false, error: (err as any).message || `Repository not found: ${owner}/${repo}` };
@@ -88,9 +107,8 @@ export const importGithubRepo = async (repoUrl: string, projectName: string) => 
     }
 
     // 2. Get the full recursive tree
-    const treeRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
-      { headers }
+    const treeRes = await githubFetch(
+      `https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`
     );
     if (!treeRes.ok) return { success: false, error: "Failed to fetch repository tree" };
     const treeData = await treeRes.json();
@@ -117,9 +135,8 @@ export const importGithubRepo = async (repoUrl: string, projectName: string) => 
     const fileContents = await Promise.all(
       blobs.map(async (blob) => {
         try {
-          const res = await fetch(
-            `https://api.github.com/repos/${owner}/${repo}/contents/${blob.path}?ref=${branch}`,
-            { headers }
+          const res = await githubFetch(
+            `https://api.github.com/repos/${owner}/${repo}/contents/${blob.path}?ref=${branch}`
           );
           if (!res.ok) return null;
           const data = await res.json();
