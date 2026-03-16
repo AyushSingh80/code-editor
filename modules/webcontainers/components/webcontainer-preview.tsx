@@ -6,8 +6,56 @@ import { CheckCircle, Copy, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 import { WebContainer } from "@webcontainer/api";
-import { TemplateFolder } from "@/modules/playground/lib/path-to-json";
+import { TemplateFile, TemplateFolder } from "@/modules/playground/lib/path-to-json";
 import TerminalComponent from "./terminal";
+
+// ── helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Scan the TemplateFolder to find which directories have their own package.json.
+ * Returns [""] for a normal single-package project (root-level package.json).
+ * Returns e.g. ["frontend", "backend"] for a monorepo.
+ */
+function findPackageDirs(templateData: TemplateFolder): string[] {
+  const rootHasPkg = templateData.items.some(
+    (item): item is TemplateFile =>
+      !("folderName" in item) &&
+      item.filename === "package" &&
+      item.fileExtension === "json"
+  );
+  if (rootHasPkg) return [""];
+
+  const dirs: string[] = [];
+  for (const item of templateData.items) {
+    if ("folderName" in item) {
+      const hasPkg = item.items.some(
+        (sub): sub is TemplateFile =>
+          !("folderName" in sub) &&
+          sub.filename === "package" &&
+          sub.fileExtension === "json"
+      );
+      if (hasPkg) dirs.push(item.folderName);
+    }
+  }
+  return dirs.length > 0 ? dirs : [""];
+}
+
+/** Read the mounted package.json and pick the best start script. */
+async function getStartScript(instance: WebContainer, dir: string): Promise<string> {
+  try {
+    const pkgPath = dir ? `${dir}/package.json` : "package.json";
+    const raw = await instance.fs.readFile(pkgPath, "utf8");
+    const scripts: Record<string, string> = JSON.parse(raw).scripts ?? {};
+    if (scripts.dev) return "dev";
+    if (scripts.start) return "start";
+    if (scripts.serve) return "serve";
+  } catch {}
+  return "dev";
+}
+
+const INSTALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+// ── component ──────────────────────────────────────────────────────────────────
 
 interface WebContainerPreviewProps {
   templateData: TemplateFolder;
@@ -16,8 +64,9 @@ interface WebContainerPreviewProps {
   error: string | null;
   instance: WebContainer | null;
   writeFileSync: (path: string, content: string) => Promise<void>;
-  forceResetup?: boolean; // Optional prop to force re-setup
+  forceResetup?: boolean;
 }
+
 const WebContainerPreview = ({
   templateData,
   error,
@@ -27,7 +76,10 @@ const WebContainerPreview = ({
   writeFileSync,
   forceResetup = false,
 }: WebContainerPreviewProps) => {
-  const [previewUrl, setPreviewUrl] = useState<string>("");
+  // Multiple servers (monorepo) each get their own URL entry
+  const [previewUrls, setPreviewUrls] = useState<{ url: string; port: number }[]>([]);
+  const [activePreviewUrl, setActivePreviewUrl] = useState("");
+
   const [loadingState, setLoadingState] = useState({
     transforming: false,
     mounting: false,
@@ -42,13 +94,15 @@ const WebContainerPreview = ({
   const [isSetupInProgress, setIsSetupInProgress] = useState(false);
 
   const terminalRef = useRef<any>(null);
+  const write = (msg: string) => terminalRef.current?.writeToTerminal?.(msg);
 
-  // Reset setup state when forceResetup changes
+  // Reset when forceResetup changes
   useEffect(() => {
     if (forceResetup) {
       setIsSetupComplete(false);
       setIsSetupInProgress(false);
-      setPreviewUrl("");
+      setPreviewUrls([]);
+      setActivePreviewUrl("");
       setCurrentStep(0);
       setLoadingState({
         transforming: false,
@@ -68,201 +122,120 @@ const WebContainerPreview = ({
         setIsSetupInProgress(true);
         setSetupError(null);
 
+        // ── Reconnect check (single-package only) ──────────────────────────
         try {
-          const packageJsonExists = await instance.fs.readFile(
-            "package.json",
-            "utf8"
-          );
-
-          if (packageJsonExists) {
-            // Files are already mounted, just reconnect to existing server
-            if (terminalRef.current?.writeToTerminal) {
-              terminalRef.current.writeToTerminal(
-                "🔄 Reconnecting to existing WebContainer session...\r\n"
-              );
-            }
-
-            instance.on("server-ready", (port: number, url: string) => {
-              if (terminalRef.current?.writeToTerminal) {
-                terminalRef.current.writeToTerminal(
-                  `🌐 Reconnected to server at ${url}\r\n`
-                );
-              }
-
-              setPreviewUrl(url);
-              setLoadingState((prev) => ({
-                ...prev,
-                starting: false,
-                ready: true,
-              }));
-            });
-
-            setCurrentStep(4);
-            setLoadingState((prev) => ({ ...prev, starting: true }));
-            return;
-          }
-        } catch (error) {}
-
-        // Step-1 transform data
-        setLoadingState((prev) => ({ ...prev, transforming: true }));
-        setCurrentStep(1);
-        // Write to terminal
-        if (terminalRef.current?.writeToTerminal) {
-          terminalRef.current.writeToTerminal(
-            "🔄 Transforming template data...\r\n"
-          );
-        }
-
-        // @ts-ignore
-        const files = transformToWebContainerFormat(templateData);
-        setLoadingState((prev) => ({
-          ...prev,
-          transforming: false,
-          mounting: true,
-        }));
-        setCurrentStep(2);
-
-        //  Step-2 Mount Files
-
-        if (terminalRef.current?.writeToTerminal) {
-          terminalRef.current.writeToTerminal(
-            "📁 Mounting files to WebContainer...\r\n"
-          );
-        }
-        await instance.mount(files);
-
-        if (terminalRef.current?.writeToTerminal) {
-          terminalRef.current.writeToTerminal(
-            "✅ Files mounted successfully\r\n"
-          );
-        }
-        setLoadingState((prev) => ({
-          ...prev,
-          mounting: false,
-          installing: true,
-        }));
-        setCurrentStep(3);
-
-        // Step-3 Install dependencies
-
-        if (terminalRef.current?.writeToTerminal) {
-          terminalRef.current.writeToTerminal(
-            "📦 Installing dependencies...\r\n"
-          );
-        }
-
-        const installProcess = await instance.spawn("npm", [
-          "install",
-          "--no-audit",
-          "--no-fund",
-          "--prefer-offline",
-        ]);
-
-        installProcess.output.pipeTo(
-          new WritableStream({
-            write(data) {
-              if (terminalRef.current?.writeToTerminal) {
-                terminalRef.current.writeToTerminal(data);
-              }
-            },
-          })
-        );
-
-        const INSTALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-        const installExitCode = await Promise.race([
-          installProcess.exit,
-          new Promise<never>((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new Error(
-                    "npm install timed out after 5 minutes. The repository may have too many or incompatible dependencies."
-                  )
-                ),
-              INSTALL_TIMEOUT_MS
-            )
-          ),
-        ]);
-
-        if (installExitCode !== 0) {
-          throw new Error(
-            `Failed to install dependencies. Exit code: ${installExitCode}`
-          );
-        }
-
-        if (terminalRef.current?.writeToTerminal) {
-          terminalRef.current.writeToTerminal(
-            "✅ Dependencies installed successfully\r\n"
-          );
-        }
-
-        setLoadingState((prev) => ({
-          ...prev,
-          installing: false,
-          starting: true,
-        }));
-        setCurrentStep(4);
-
-        // STEP-4 Start The Server
-
-        if (terminalRef.current?.writeToTerminal) {
-          terminalRef.current.writeToTerminal(
-            "🚀 Starting development server...\r\n"
-          );
-        }
-
-        // Detect the available start script (dev > start > serve)
-        let startScript = "dev";
-        try {
-          const pkgRaw = await instance.fs.readFile("package.json", "utf8");
-          const pkg = JSON.parse(pkgRaw);
-          const scripts: Record<string, string> = pkg.scripts ?? {};
-          if (scripts.dev) startScript = "dev";
-          else if (scripts.start) startScript = "start";
-          else if (scripts.serve) startScript = "serve";
+          await instance.fs.readFile("package.json", "utf8");
+          write("🔄 Reconnecting to existing WebContainer session...\r\n");
+          instance.on("server-ready", (port: number, url: string) => {
+            write(`🌐 Reconnected at ${url}\r\n`);
+            setPreviewUrls((prev) =>
+              prev.some((p) => p.port === port) ? prev : [...prev, { url, port }]
+            );
+            setActivePreviewUrl((prev) => prev || url);
+            setLoadingState((prev) => ({ ...prev, starting: false, ready: true }));
+          });
+          setCurrentStep(4);
+          setLoadingState((prev) => ({ ...prev, starting: true }));
+          return;
         } catch {}
 
-        if (terminalRef.current?.writeToTerminal) {
-          terminalRef.current.writeToTerminal(
-            `▶ Running: npm run ${startScript}\r\n`
-          );
+        // ── Step 1: Transform ──────────────────────────────────────────────
+        setCurrentStep(1);
+        setLoadingState((prev) => ({ ...prev, transforming: true }));
+        write("🔄 Transforming template data...\r\n");
+        // @ts-ignore
+        const files = transformToWebContainerFormat(templateData);
+        setLoadingState((prev) => ({ ...prev, transforming: false, mounting: true }));
+
+        // ── Step 2: Mount ──────────────────────────────────────────────────
+        setCurrentStep(2);
+        write("📁 Mounting files to WebContainer...\r\n");
+        await instance.mount(files);
+        write("✅ Files mounted successfully\r\n");
+
+        // Detect monorepo vs single-package from the template structure
+        const packageDirs = findPackageDirs(templateData);
+        const isMonorepo = !(packageDirs.length === 1 && packageDirs[0] === "");
+        if (isMonorepo) {
+          write(`🗂 Monorepo detected — packages: ${packageDirs.join(", ")}\r\n`);
         }
 
-        const startProcess = await instance.spawn("npm", ["run", startScript]);
+        // ── Step 3: Install (once per package) ────────────────────────────
+        setCurrentStep(3);
+        setLoadingState((prev) => ({ ...prev, mounting: false, installing: true }));
 
-        instance.on("server-ready", (port: number, url: string) => {
-          if (terminalRef.current?.writeToTerminal) {
-            terminalRef.current.writeToTerminal(
-              `🌐 Server ready at ${url}\r\n`
+        for (const dir of packageDirs) {
+          const label = dir || "root";
+          write(`📦 Installing dependencies in ${label}...\r\n`);
+
+          const spawnOpts = dir ? { cwd: dir } : {};
+          const installProcess = await instance.spawn(
+            "npm",
+            ["install", "--no-audit", "--no-fund", "--prefer-offline"],
+            spawnOpts
+          );
+
+          installProcess.output.pipeTo(
+            new WritableStream({ write: (data) => write(data) })
+          );
+
+          const exitCode = await Promise.race([
+            installProcess.exit,
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      `npm install timed out after 5 min in "${label}". The package may have too many or incompatible dependencies.`
+                    )
+                  ),
+                INSTALL_TIMEOUT_MS
+              )
+            ),
+          ]);
+
+          if (exitCode !== 0) {
+            throw new Error(
+              `Failed to install dependencies in "${label}". Exit code: ${exitCode}`
             );
           }
-          setPreviewUrl(url);
-          setLoadingState((prev) => ({
-            ...prev,
-            starting: false,
-            ready: true,
-          }));
+          write(`✅ Dependencies installed in ${label}\r\n`);
+        }
+
+        // ── Step 4: Start all servers ──────────────────────────────────────
+        setCurrentStep(4);
+        setLoadingState((prev) => ({ ...prev, installing: false, starting: true }));
+
+        // Register before spawning so we never miss the event
+        instance.on("server-ready", (port: number, url: string) => {
+          write(`🌐 Server ready at ${url} (port ${port})\r\n`);
+          setPreviewUrls((prev) =>
+            prev.some((p) => p.port === port) ? prev : [...prev, { url, port }]
+          );
+          // First URL becomes the default preview
+          setActivePreviewUrl((prev) => prev || url);
+          setLoadingState((prev) => ({ ...prev, starting: false, ready: true }));
           setIsSetupComplete(true);
           setIsSetupInProgress(false);
         });
 
-        // Handle start process output - stream to terminal
-        startProcess.output.pipeTo(
-          new WritableStream({
-            write(data) {
-              if (terminalRef.current?.writeToTerminal) {
-                terminalRef.current.writeToTerminal(data);
-              }
-            },
-          })
-        );
+        // Spawn all servers concurrently (don't await their exit)
+        for (const dir of packageDirs) {
+          const label = dir || "root";
+          const script = await getStartScript(instance, dir);
+          const spawnOpts = dir ? { cwd: dir } : {};
+          write(`🚀 Starting ${label}: npm run ${script}\r\n`);
+
+          const startProcess = await instance.spawn("npm", ["run", script], spawnOpts);
+          startProcess.output.pipeTo(
+            new WritableStream({ write: (data) => write(data) })
+          );
+        }
       } catch (err) {
         console.error("Error setting up container:", err);
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        if (terminalRef.current?.writeToTerminal) {
-          terminalRef.current.writeToTerminal(`❌ Error: ${errorMessage}\r\n`);
-        }
-        setSetupError(errorMessage);
+        const msg = err instanceof Error ? err.message : String(err);
+        write(`❌ Error: ${msg}\r\n`);
+        setSetupError(msg);
         setIsSetupInProgress(false);
         setLoadingState({
           transforming: false,
@@ -308,28 +281,20 @@ const WebContainerPreview = ({
       </div>
     );
   }
+
   const getStepIcon = (stepIndex: number) => {
-    if (stepIndex < currentStep) {
-      return <CheckCircle className="h-5 w-5 text-green-500" />;
-    } else if (stepIndex === currentStep) {
-      return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />;
-    } else {
-      return <div className="h-5 w-5 rounded-full border-2 border-gray-300" />;
-    }
+    if (stepIndex < currentStep) return <CheckCircle className="h-5 w-5 text-green-500" />;
+    if (stepIndex === currentStep) return <Loader2 className="h-5 w-5 animate-spin text-blue-500" />;
+    return <div className="h-5 w-5 rounded-full border-2 border-gray-300" />;
   };
 
   const getStepText = (stepIndex: number, label: string) => {
     const isActive = stepIndex === currentStep;
     const isComplete = stepIndex < currentStep;
-
     return (
       <span
         className={`text-sm font-medium ${
-          isComplete
-            ? "text-green-600"
-            : isActive
-            ? "text-blue-600"
-            : "text-gray-500"
+          isComplete ? "text-green-600" : isActive ? "text-blue-600" : "text-gray-500"
         }`}
       >
         {label}
@@ -339,14 +304,10 @@ const WebContainerPreview = ({
 
   return (
     <div className="h-full w-full flex flex-col">
-      {!previewUrl ? (
+      {!activePreviewUrl ? (
         <div className="h-full flex flex-col">
           <div className="w-full max-w-md p-6 m-5 rounded-lg bg-white dark:bg-zinc-800 shadow-sm mx-auto">
-            <Progress
-              value={(currentStep / totalSteps) * 100}
-              className="h-2 mb-6"
-            />
-
+            <Progress value={(currentStep / totalSteps) * 100} className="h-2 mb-6" />
             <div className="space-y-4 mb-6">
               <div className="flex items-center gap-3">
                 {getStepIcon(1)}
@@ -367,7 +328,6 @@ const WebContainerPreview = ({
             </div>
           </div>
 
-          {/* Terminal */}
           <div className="flex-1 p-4">
             <TerminalComponent
               ref={terminalRef}
@@ -379,25 +339,46 @@ const WebContainerPreview = ({
         </div>
       ) : (
         <div className="h-full flex flex-col">
-          {/* Address bar */}
+          {/* Address bar — shows port switcher buttons for monorepos */}
           <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-muted/30 shrink-0">
             <button
               onClick={() => {
-                const iframe = document.querySelector("iframe[title='WebContainer Preview']") as HTMLIFrameElement;
-                if (iframe) iframe.src = previewUrl;
+                const iframe = document.querySelector(
+                  "iframe[title='WebContainer Preview']"
+                ) as HTMLIFrameElement;
+                if (iframe) iframe.src = activePreviewUrl;
               }}
               className="p-1 rounded hover:bg-muted"
               title="Reload preview"
             >
               <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
-            <span className="flex-1 text-xs text-muted-foreground truncate font-mono bg-background rounded px-2 py-1 border select-all">
-              {previewUrl}
-            </span>
+
+            {previewUrls.length > 1 ? (
+              // Monorepo: show clickable port buttons
+              <div className="flex flex-1 items-center gap-1 overflow-x-auto">
+                {previewUrls.map(({ url, port }) => (
+                  <button
+                    key={port}
+                    onClick={() => setActivePreviewUrl(url)}
+                    className={`shrink-0 text-xs px-2 py-0.5 rounded border font-mono transition-colors ${
+                      activePreviewUrl === url
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-muted-foreground border-border hover:bg-muted"
+                    }`}
+                  >
+                    :{port}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className="flex-1 text-xs text-muted-foreground truncate font-mono bg-background rounded px-2 py-1 border select-all">
+                {activePreviewUrl}
+              </span>
+            )}
+
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(previewUrl);
-              }}
+              onClick={() => navigator.clipboard.writeText(activePreviewUrl)}
               className="p-1 rounded hover:bg-muted"
               title="Copy URL (only works in this tab)"
             >
@@ -407,7 +388,7 @@ const WebContainerPreview = ({
 
           <div className="flex-1 min-h-0">
             <iframe
-              src={previewUrl}
+              src={activePreviewUrl}
               className="w-full h-full border-none"
               title="WebContainer Preview"
             />
