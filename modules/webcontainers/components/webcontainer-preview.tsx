@@ -151,7 +151,12 @@ const WebContainerPreview = ({
           );
         }
 
-        const installProcess = await instance.spawn("npm", ["install"]);
+        const installProcess = await instance.spawn("npm", [
+          "install",
+          "--no-audit",
+          "--no-fund",
+          "--prefer-offline",
+        ]);
 
         installProcess.output.pipeTo(
           new WritableStream({
@@ -163,7 +168,21 @@ const WebContainerPreview = ({
           })
         );
 
-        const installExitCode = await installProcess.exit;
+        const INSTALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+        const installExitCode = await Promise.race([
+          installProcess.exit,
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "npm install timed out after 5 minutes. The repository may have too many or incompatible dependencies."
+                  )
+                ),
+              INSTALL_TIMEOUT_MS
+            )
+          ),
+        ]);
 
         if (installExitCode !== 0) {
           throw new Error(
@@ -192,7 +211,24 @@ const WebContainerPreview = ({
           );
         }
 
-        const startProcess = await instance.spawn("npm", ["run", "dev"]);
+        // Detect the available start script (dev > start > serve)
+        let startScript = "dev";
+        try {
+          const pkgRaw = await instance.fs.readFile("package.json", "utf8");
+          const pkg = JSON.parse(pkgRaw);
+          const scripts: Record<string, string> = pkg.scripts ?? {};
+          if (scripts.dev) startScript = "dev";
+          else if (scripts.start) startScript = "start";
+          else if (scripts.serve) startScript = "serve";
+        } catch {}
+
+        if (terminalRef.current?.writeToTerminal) {
+          terminalRef.current.writeToTerminal(
+            `▶ Running: npm run ${startScript}\r\n`
+          );
+        }
+
+        const startProcess = await instance.spawn("npm", ["run", startScript]);
 
         instance.on("server-ready", (port: number, url: string) => {
           if (terminalRef.current?.writeToTerminal) {
