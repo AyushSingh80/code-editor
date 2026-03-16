@@ -28,9 +28,9 @@ export const MarkedToggleButton = forwardRef<HTMLButtonElement, MarkedToggleButt
                 const {success ,error, isMarked} = res;
 
                 if(isMarked && !error && success){
-                    toast.success("Removed from Favourites successfully")
-                }else{
                     toast.success("Added to favourites successfully")
+                }else if(!isMarked && !error && success){
+                    toast.success("Removed from favourites successfully")
                 }
             } catch (error) {
                 console.error("failed to toggle for revision" , error)

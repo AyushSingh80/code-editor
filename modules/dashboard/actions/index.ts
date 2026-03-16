@@ -111,12 +111,12 @@ export const toggleStarMarked = async (
     throw new Error("User Id is Required");
   }
   try {
-    if (!isChecked) {
+    if (isChecked) {
       await db.starMark.create({
         data: {
           userId: userId!,
           playgroundId,
-          isMarked: isChecked,
+          isMarked: true,
         },
       });
     } else {
@@ -133,6 +133,6 @@ export const toggleStarMarked = async (
     return { success: true, isMarked: isChecked };
   } catch (error) {
     console.error("Error updating problem:", error);
-    return { succes: false, error: "failed to update problem" };
+    return { success: false, error: "failed to update problem" };
   }
 };

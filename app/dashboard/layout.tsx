@@ -1,4 +1,4 @@
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { getAllPlaygroundForUser } from "@/modules/dashboard/actions";
 import { DashboardSidebar } from "@/modules/dashboard/components/dashboard-sidebar";
 
@@ -20,15 +20,12 @@ export default async function DashboardLayout({
         id: item.id,
         name:item.title,
         starred:item.StarMark?.[0]?.isMarked || false,
-        icon:technologyIconMap[item.template] ||"code2"
+        icon:technologyIconMap[item.template] || "Code2"
     }))
 return (
   <SidebarProvider>
-    <div className="flex min-h-screen w-full overflow-x-hidden">
-        
-        <DashboardSidebar initialPlaygroundData={formattedPalyground || []}></DashboardSidebar>
-      <main className="flex-1">{children}</main>
-    </div>
+    <DashboardSidebar initialPlaygroundData={formattedPalyground || []} />
+    <SidebarInset>{children}</SidebarInset>
   </SidebarProvider>
 );
 }
