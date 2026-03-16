@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from "react";
 
 import { transformToWebContainerFormat } from "../hooks/transformer";
-import { CheckCircle, Loader2, XCircle } from "lucide-react";
+import { CheckCircle, Copy, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 import { WebContainer } from "@webcontainer/api";
@@ -192,7 +192,7 @@ const WebContainerPreview = ({
           );
         }
 
-        const startProcess = await instance.spawn("npm", ["run", "start"]);
+        const startProcess = await instance.spawn("npm", ["run", "dev"]);
 
         instance.on("server-ready", (port: number, url: string) => {
           if (terminalRef.current?.writeToTerminal) {
@@ -343,7 +343,33 @@ const WebContainerPreview = ({
         </div>
       ) : (
         <div className="h-full flex flex-col">
-          <div className="flex-1">
+          {/* Address bar */}
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b bg-muted/30 shrink-0">
+            <button
+              onClick={() => {
+                const iframe = document.querySelector("iframe[title='WebContainer Preview']") as HTMLIFrameElement;
+                if (iframe) iframe.src = previewUrl;
+              }}
+              className="p-1 rounded hover:bg-muted"
+              title="Reload preview"
+            >
+              <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+            <span className="flex-1 text-xs text-muted-foreground truncate font-mono bg-background rounded px-2 py-1 border select-all">
+              {previewUrl}
+            </span>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(previewUrl);
+              }}
+              className="p-1 rounded hover:bg-muted"
+              title="Copy URL (only works in this tab)"
+            >
+              <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </div>
+
+          <div className="flex-1 min-h-0">
             <iframe
               src={previewUrl}
               className="w-full h-full border-none"
@@ -351,7 +377,7 @@ const WebContainerPreview = ({
             />
           </div>
 
-          <div className="h-64 border-t">
+          <div className="h-64 border-t shrink-0">
             <TerminalComponent
               ref={terminalRef}
               webContainerInstance={instance}
